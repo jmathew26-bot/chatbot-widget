@@ -1,5 +1,5 @@
 # chatbot-widget
-// chatbot-widget/widget.js
+// widget.js
 (function () {
   const bubble = document.createElement("div");
   bubble.innerText = "💬";
@@ -18,7 +18,7 @@
   bubble.style.zIndex = "9999";
 
   const iframe = document.createElement("iframe");
-  iframe.src = "https://your-backend-or-chat-page.com/chat.html"; // this will be replaced later
+  iframe.src = "https://your-chatbot-ui-page.com/chat.html"; // update later
   iframe.style.display = "none";
   iframe.style.position = "fixed";
   iframe.style.bottom = "90px";
@@ -32,6 +32,24 @@
   bubble.addEventListener("click", () => {
     iframe.style.display = iframe.style.display === "none" ? "block" : "none";
   });
+
+  document.body.appendChild(bubble);
+  document.body.appendChild(iframe);
+})();
+
+<!-- chat.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Chatbot</title>
+</head>
+<body>
+  <h2>Chatbot Coming Soon!</h2>
+  <p>This is where your GPT chat UI will go.</p>
+</body>
+</html>
+
 
   document.body.appendChild(bubble);
   document.body.appendChild(iframe);
