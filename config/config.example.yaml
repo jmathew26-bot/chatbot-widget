@@ -1,0 +1,183 @@
+# Copy to config/config.yaml and edit. This file drives everything the
+# agents do: who to look for, where, how fast, and how the emails sound.
+# Secrets (API keys) go in .env, not here.
+
+user:
+  name: "Your Name"
+  email: "you@example.com"
+  bio_short: "Set this in USER_PROFILE.md -- this field is only a fallback."
+  current_role: "UNKNOWN"
+  location: "Austin, TX"
+  university_affiliations:
+    - "The University of Texas at Austin"
+  goals:
+    - "Meet UT Austin alumni in enterprise tech sales and commercial real estate"
+
+targets:
+  industries:
+    - enterprise-software
+    - cloud
+    - cybersecurity
+    - ai
+    - data-infrastructure
+    - saas
+    - fintech
+    - infrastructure-software
+    - commercial-real-estate
+  categories:
+    - tech-sales
+    - cre
+
+  tech_sales:
+    titles:
+      - Account Executive
+      - Enterprise Account Executive
+      - Strategic Account Executive
+      - Major Account Executive
+      - Named Account Executive
+      - Regional Sales Manager
+      - Regional Vice President
+      - Sales Director
+      - Area Vice President
+      - Vice President of Sales
+      - Senior Vice President of Sales
+      - Chief Revenue Officer
+      - Business Development Director
+      - Strategic Partnerships
+      - Partnerships Director
+      - Enterprise Partnerships
+      - GTM Leadership
+    companies:
+      - Salesforce
+      - ServiceNow
+      - Snowflake
+      - Datadog
+      - CrowdStrike
+      - Palo Alto Networks
+      - Oracle
+      - AWS
+      - Google Cloud
+      - Microsoft
+      - HubSpot
+      - MongoDB
+      - Okta
+      - Cloudflare
+      - Workday
+      - Adobe
+      - Atlassian
+      - Zoom
+      - Samsara
+      - Rubrik
+      - Wiz
+      - Zscaler
+      - GitLab
+      - Stripe
+      - Rippling
+      - Deel
+      - Gong
+      - Clari
+      - Confluent
+      - HashiCorp
+      - NVIDIA
+      - Cisco
+      - Dell
+      - IBM
+
+  cre:
+    titles:
+      - Associate
+      - Senior Associate
+      - Vice President
+      - Senior Vice President
+      - Executive Vice President
+      - Managing Director
+      - Partner
+      - Principal
+      - Director
+      - Head of Acquisitions
+      - Development Manager
+      - Development Director
+      - Investment Sales Broker
+      - Capital Markets Broker
+    companies:
+      - CBRE
+      - JLL
+      - Cushman & Wakefield
+      - Newmark
+      - Colliers
+      - Eastdil Secured
+      - Hines
+      - Stream Realty Partners
+      - Lincoln Property Company
+      - Trammell Crow Company
+      - Greystar
+      - Berkadia
+      - Walker & Dunlop
+      - Marcus & Millichap
+      - Matthews Real Estate Investment Services
+      - Northmarq
+
+  locations:
+    tier_1: ["Austin"]
+    tier_2: ["Texas", "Dallas", "Houston", "San Antonio"]
+    tier_3:
+      - Denver
+      - Phoenix
+      - Los Angeles
+      - San Francisco
+      - New York
+      - Chicago
+      - Atlanta
+      - Miami
+      - Nashville
+
+  excluded_companies: []
+  excluded_people: []
+
+scoring:
+  weights:
+    ut_austin: 25
+    career_relevance: 20
+    company_quality: 15
+    seniority: 10
+    geography: 10
+    career_interest: 10
+    relationship_value: 10
+  thresholds:
+    exceptional: 90
+    high_priority: 80
+    good: 70
+    review: 60
+
+limits:
+  daily_discovery_limit: 25
+  daily_email_limit: 10
+  default_discover_count: 20
+
+followups:
+  max_total_attempts: 3
+  followup_1_business_days: 5
+  followup_2_business_days_after_followup_1: 8
+
+email:
+  min_words: 60
+  default_max_words: 130
+  hard_max_words: 160
+  tone: "intelligent, relaxed, professional, curious, confident, personable, concise"
+  banned_phrases:
+    - "circle back"
+    - "touch base"
+    - "pick your brain"
+    - "synergy"
+    - "just bumping this"
+    - "just following up"
+    - "hope this email finds you well"
+
+meetings:
+  default_duration_minutes: 25
+  min_duration_minutes: 20
+  max_duration_minutes: 30
+  austin_meeting_types: ["coffee", "lunch", "office", "phone", "zoom"]
+  remote_meeting_types: ["phone", "zoom"]
+
+autonomous_sending_enabled: false
