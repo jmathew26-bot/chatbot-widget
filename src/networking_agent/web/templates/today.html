@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Today · Networking Agent{% endblock %}
+{% block content %}
+<h1>NETWORKING BRIEF</h1>
+
+<div class="stat-row">
+  <div class="stat-tile"><div class="num">{{ brief.new_prospects_discovered }}</div><div class="label">New prospects</div></div>
+  <div class="stat-tile"><div class="num">{{ brief.high_priority }}</div><div class="label">High priority</div></div>
+  <div class="stat-tile"><div class="num">{{ brief.emails_awaiting_approval }}</div><div class="label">Awaiting approval</div></div>
+  <div class="stat-tile"><div class="num">{{ brief.followups_due }}</div><div class="label">Follow-ups due</div></div>
+  <div class="stat-tile"><div class="num">{{ brief.replies_received_today }}</div><div class="label">Replies today</div></div>
+  <div class="stat-tile"><div class="num">{{ brief.meetings_scheduled_this_week }}</div><div class="label">Meetings this week</div></div>
+</div>
+
+<h2>Follow-ups due ({{ due_people|length }})</h2>
+<div class="panel">
+  {% if due_people %}
+  <table>
+    <tr><th>Name</th><th>Company</th><th>Attempts</th><th>Next action</th><th></th></tr>
+    {% for p in due_people %}
+    <tr>
+      <td><a class="plain" href="/prospects/{{ p.id }}">{{ p.full_name }}</a></td>
+      <td>{{ m.company_name(p) }}</td>
+      <td>{{ p.relationship.attempts_count }}/3</td>
+      <td>{{ p.relationship.next_action_date }}</td>
+      <td><a class="plain" href="/outreach">Review in Outreach →</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">Nothing due.</p>{% endif %}
+</div>
+
+<h2>Top prospects</h2>
+<div class="panel">
+  <table>
+    <tr><th>Score</th><th>Name</th><th>Company</th><th>Title</th><th>UT</th><th>Status</th></tr>
+    {% for p in top %}
+    <tr>
+      <td>{{ p.total_score }}</td>
+      <td><a class="plain" href="/prospects/{{ p.id }}">{{ p.full_name }}</a></td>
+      <td>{{ m.company_name(p) }}</td>
+      <td>{{ p.current_title }}</td>
+      <td>{{ m.ut_badge(p.ut_status) }}</td>
+      <td>{{ m.status_badge(p.relationship.status if p.relationship else None) }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

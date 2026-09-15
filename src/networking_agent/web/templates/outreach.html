@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Outreach · Networking Agent{% endblock %}
+{% block content %}
+<h1>Outreach review</h1>
+
+{% if ready_no_draft %}
+<h2>Ready for review, no draft yet ({{ ready_no_draft|length }})</h2>
+<div class="panel">
+  <table>
+    <tr><th>Score</th><th>Name</th><th>Company</th><th></th></tr>
+    {% for p in ready_no_draft %}
+    <tr>
+      <td>{{ p.total_score }}</td>
+      <td>{{ p.full_name }}</td>
+      <td>{{ m.company_name(p) }}</td>
+      <td>
+        <form class="inline" method="post" action="/outreach/draft/{{ p.id }}">
+          <button type="submit" class="primary">Draft email</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+<h2>Pending review ({{ pending|length }})</h2>
+{% if not pending %}
+<p class="muted">Nothing to review right now.</p>
+{% endif %}
+{% for o in pending %}
+<div class="email-card">
+  <div class="meta">
+    <strong>{{ o.person.full_name }}</strong> — {{ o.person.current_title }} at {{ m.company_name(o.person) }}
+    &middot; Score {{ o.person.total_score }} &middot; UT {{ o.person.ut_status }}
+    &middot; Sequence {{ o.sequence_number }} &middot; {{ m.status_badge(o.status) }}
+  </div>
+  <p><em>{{ o.person.networking_thesis }}</em></p>
+  <p class="muted">Subject options: {{ o.subject_options|join(' / ') }}</p>
+
+  <form method="post" action="/outreach/{{ o.id }}/edit">
+    <input type="text" name="subject" value="{{ o.subject }}" style="width:100%; margin-bottom:8px;">
+    <textarea name="body">{{ o.body }}</textarea>
+    <p class="muted">{{ o.body.split()|length }} words</p>
+    <div class="actions">
+      <label><input type="checkbox" name="approve_now"> Save &amp; approve</label>
+      <button type="submit">Save edits</button>
+    </div>
+  </form>
+
+  <div class="actions">
+    <form class="inline" method="post" action="/outreach/{{ o.id }}/approve">
+      <button type="submit" class="primary">Approve</button>
+    </form>
+    <form class="inline" method="post" action="/outreach/{{ o.id }}/skip">
+      <button type="submit">Skip</button>
+    </form>
+    <form class="inline" method="post" action="/outreach/{{ o.id }}/block">
+      <input type="text" name="reason" placeholder="Block reason" value="not a fit">
+      <button type="submit" class="danger">Block</button>
+    </form>
+    {% if o.status in ('APPROVED', 'EDITED') %}
+    <form class="inline" method="post" action="/outreach/{{ o.id }}/send">
+      <button type="submit" class="primary">Send now</button>
+    </form>
+    {% endif %}
+    <a class="plain" href="/prospects/{{ o.person.id }}">View full profile →</a>
+  </div>
+</div>
+{% endfor %}
+
+{% if pending %}
+<form method="post" action="/outreach/send-all" onsubmit="return confirm('Send every approved/edited message now?');">
+  <button type="submit" class="primary">Send all approved</button>
+</form>
+{% endif %}
+
+<h2>Recently sent</h2>
+<div class="panel">
+  <table>
+    <tr><th>Name</th><th>Subject</th><th>Sent</th></tr>
+    {% for o in sent %}
+    <tr><td>{{ o.person.full_name }}</td><td>{{ o.subject }}</td><td>{{ o.sent_at.strftime('%Y-%m-%d %H:%M') if o.sent_at else '-' }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

@@ -51,6 +51,14 @@ src/networking_agent/
     cadence.py                  # business-day arithmetic for follow-up scheduling
     companies.py                 # get-or-create Company rows
     llm_json.py                  # parse+validate LLM JSON output against a pydantic schema
+  web/                        # FastAPI dashboard -- server-rendered HTML, no JS build step
+    app.py                      # create_app(), mounts routers + /static
+    deps.py                      # per-request DB session + AgentContext dependency
+    templating.py                 # shared Jinja2Templates instance
+    routers/                      # today, prospects, outreach, replies, meetings,
+                                   # relationships, analytics, settings_page -- each one
+                                   # calls the same agents/services the CLI calls
+    templates/, static/style.css
 tests/                       # pytest; in-memory SQLite + fake providers, no network calls
 USER_PROFILE.md              # you fill this out; read by the Email/Research agents
 .env.example                 # every optional credential, documented, never committed
@@ -100,7 +108,7 @@ the caller falls back to a deterministic path instead.
 - [x] **Phase 4 (scaffolded, needs real credentials to go live)** -- `GmailEmailProvider` implemented against the Gmail API; defaults to `ConsoleEmailProvider` (dry-run) until `GMAIL_CREDENTIALS_JSON`/`GMAIL_TOKEN_JSON` exist on disk; follow-up cadence + 3-attempt cap implemented and tested
 - [x] **Phase 5 (scaffolded)** -- `ResponseAgent` classification (LLM + heuristic fallback) implemented and tested; live inbox polling requires Gmail credentials, manual ingestion (`network inbox --person-id --reply-text`) works today
 - [x] **Phase 6 (scaffolded)** -- `SchedulingAgent` + `GoogleCalendarProvider` implemented; collision detection works today against the app's own Meeting table even without Google Calendar credentials
-- [ ] **Phase 7** -- CLI + Rich tables only; no web dashboard. Backend is already structured for one (`agents/analytics.py` returns plain dicts/lists suitable for a future API layer)
+- [x] **Phase 7** -- web dashboard (`network serve`): Today/Prospects/Outreach/Replies/Meetings/Relationships/Analytics/Settings, server-rendered (FastAPI + Jinja2, no JS build step), calling the same agent/service functions as the CLI so there's one source of truth for business logic. Binds to `127.0.0.1` by default; no auth layer, so keep it local unless you put one in front of it.
 
 ## 5. Safety properties enforced in code (not just docs)
 

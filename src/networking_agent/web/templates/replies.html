@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Replies · Networking Agent{% endblock %}
+{% block content %}
+<h1>Replies</h1>
+
+<div class="panel">
+  <p class="muted">
+    Without a live inbox connection (Gmail), replies aren't fetched automatically.
+    Paste one in here to classify it and update follow-up/relationship state.
+  </p>
+  <form method="post" action="/replies/classify">
+    <div style="margin-bottom:8px;">
+      <label class="muted">Person</label><br>
+      <select name="person_id" required style="width:100%">
+        {% for p in contacted %}
+        <option value="{{ p.id }}">{{ p.full_name }} — {{ p.current_title }} ({{ p.relationship.status }})</option>
+        {% endfor %}
+      </select>
+    </div>
+    <textarea name="reply_text" placeholder="Paste the reply text here..."></textarea>
+    <button type="submit" class="primary">Classify &amp; apply</button>
+  </form>
+</div>
+
+<h2>Recent reply activity</h2>
+<div class="panel">
+  <table>
+    <tr><th>When</th><th>Classification</th><th>Confidence</th></tr>
+    {% for a in recent_activity %}
+    <tr>
+      <td>{{ a.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+      <td>{{ m.status_badge(a.payload.get('classification')) }}</td>
+      <td>{{ a.payload.get('confidence') }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% if not recent_activity %}<p class="muted">No replies recorded yet.</p>{% endif %}
+</div>
+{% endblock %}

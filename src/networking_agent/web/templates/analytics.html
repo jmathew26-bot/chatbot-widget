@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Analytics · Networking Agent{% endblock %}
+{% block content %}
+<h1>Analytics</h1>
+<p class="muted">Response/meeting rates are only meaningful once outreach has actually been sent. Optimize for meetings with high-value people, not volume.</p>
+
+{% for title, rows in breakdowns.items() %}
+<h2>{{ title }}</h2>
+<div class="panel">
+  {% if rows %}
+  <table>
+    <tr><th>Bucket</th><th>Sent</th><th>Replied</th><th>Positive</th><th>Meetings</th><th>Response rate</th><th>Meeting rate</th></tr>
+    {% for key, r in rows.items() %}
+    <tr>
+      <td>{{ key }}</td>
+      <td>{{ r.sent }}</td>
+      <td>{{ r.replied }}</td>
+      <td>{{ r.get('positive', '-') }}</td>
+      <td>{{ r.get('meetings', '-') }}</td>
+      <td>{{ (r.response_rate * 100)|round(1) }}%</td>
+      <td>{{ (r.meeting_rate * 100)|round(1) if 'meeting_rate' in r else '-' }}%</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">No sent outreach yet.</p>{% endif %}
+</div>
+{% endfor %}
+
+<h2>Company leaderboard</h2>
+<div class="panel">
+  <table>
+    <tr><th>Company</th><th>Category</th><th>Quality score</th><th>People discovered</th></tr>
+    {% for c in companies %}
+    <tr><td>{{ c.name }}</td><td>{{ c.category }}</td><td>{{ c.quality_score }}</td><td>{{ c.people_count }}</td></tr>
+    {% endfor %}
+  </table>
+  {% if not companies %}<p class="muted">No companies yet.</p>{% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Relationships · Networking Agent{% endblock %}
+{% block content %}
+<h1>Relationships</h1>
+
+<div class="stat-row">
+  {% for status, count in status_counts.items() %}
+  <div class="stat-tile"><div class="num">{{ count }}</div><div class="label">{{ status.replace('_',' ') }}</div></div>
+  {% endfor %}
+</div>
+
+<div class="panel">
+<table>
+  <tr><th>Name</th><th>Status</th><th>Discovered</th><th>First contact</th><th>Last contact</th><th>Attempts</th><th>Reply</th><th>Meeting</th><th>Strength</th></tr>
+  {% for p in people %}
+  {% set r = p.relationship %}
+  <tr>
+    <td><a class="plain" href="/prospects/{{ p.id }}">{{ p.full_name }}</a></td>
+    <td>{{ m.status_badge(r.status if r else None) }}</td>
+    <td>{{ r.date_discovered.strftime('%Y-%m-%d') if r and r.date_discovered else '-' }}</td>
+    <td>{{ r.date_first_contacted.strftime('%Y-%m-%d') if r and r.date_first_contacted else '-' }}</td>
+    <td>{{ r.last_contact.strftime('%Y-%m-%d') if r and r.last_contact else '-' }}</td>
+    <td>{{ r.attempts_count if r else 0 }}/3</td>
+    <td>{{ r.reply_status or '-' if r else '-' }}</td>
+    <td>{{ r.meeting_status or '-' if r else '-' }}</td>
+    <td>{{ r.relationship_strength if r else 0 }}</td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+{% endblock %}

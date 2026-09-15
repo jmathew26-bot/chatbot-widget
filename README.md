@@ -39,7 +39,24 @@ network followups               # shows + processes follow-ups due today (same A
 network inbox --person-id 12 --reply-text "..."   # manually classify a reply
 network schedule --person-id 12                    # propose open meeting slots
 network dashboard                # morning brief
+
+network serve                    # web dashboard at http://127.0.0.1:8000
 ```
+
+## Web dashboard
+
+`network serve` starts a FastAPI + server-rendered-HTML dashboard (no JS
+build step) with the same eight sections as the CLI, backed by the exact
+same agent/service functions -- there's one source of truth for business
+logic:
+
+**Today · Prospects · Outreach · Replies · Meetings · Relationships ·
+Analytics · Settings**
+
+It binds to `127.0.0.1` by default. There is no login -- it's a local tool,
+and pages can trigger real sends/calendar events once those providers are
+configured, so don't bind it to a public interface without adding auth in
+front of it.
 
 ## What works out of the box (no API keys)
 
@@ -82,5 +99,6 @@ pytest
 Covers: duplicate prevention, UT Austin vs. other-UT-system verification,
 deterministic scoring, schema validation, approval-gated send (never sends a
 DRAFT/SKIPPED/BLOCKED message), follow-up cancellation on any reply
-(positive or negative), opt-out / do-not-contact handling, and
-calendar-collision detection.
+(positive or negative), opt-out / do-not-contact handling, calendar-collision
+detection, and the web dashboard's draft/approve/send/schedule/note routes
+(FastAPI TestClient against an isolated in-memory DB).

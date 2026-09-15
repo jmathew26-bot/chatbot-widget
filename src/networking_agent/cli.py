@@ -367,5 +367,27 @@ def dashboard() -> None:
             console.print(_person_summary_table(top))
 
 
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", help="Bind address. Keep this local -- there is no auth layer."),
+    port: int = typer.Option(8000),
+    reload: bool = typer.Option(False, help="Auto-reload on code changes (dev only)."),
+) -> None:
+    """Run the web dashboard (Today/Prospects/Outreach/Replies/Meetings/
+    Relationships/Analytics/Settings). Binds to localhost by default: the
+    dashboard can approve outreach and trigger real sends/calendar events
+    once those providers are configured, and has no login of its own."""
+    configure_logging()
+    import uvicorn
+
+    if host not in ("127.0.0.1", "localhost"):
+        console.print(
+            f"[yellow]Warning: binding to {host} exposes this dashboard (and its send/schedule actions) "
+            f"to anything that can reach this host. There is no authentication.[/yellow]"
+        )
+    console.print(f"[green]Serving dashboard at http://{host}:{port}[/green]")
+    uvicorn.run("networking_agent.web.app:app", host=host, port=port, reload=reload)
+
+
 if __name__ == "__main__":
     app()

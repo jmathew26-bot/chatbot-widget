@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Prospects · Networking Agent{% endblock %}
+{% block content %}
+<h1>Prospects ({{ people|length }})</h1>
+
+<form class="filter-form" method="get" action="/prospects">
+  <div><label>Category</label>
+    <select name="category">
+      <option value="" {% if not category %}selected{% endif %}>All</option>
+      <option value="tech-sales" {% if category == 'tech-sales' %}selected{% endif %}>Tech Sales</option>
+      <option value="cre" {% if category == 'cre' %}selected{% endif %}>CRE</option>
+    </select>
+  </div>
+  <div><label>UT status</label>
+    <select name="ut_status">
+      <option value="" {% if not ut_status %}selected{% endif %}>All</option>
+      <option value="VERIFIED" {% if ut_status == 'VERIFIED' %}selected{% endif %}>Verified</option>
+      <option value="LIKELY" {% if ut_status == 'LIKELY' %}selected{% endif %}>Likely</option>
+      <option value="UNVERIFIED" {% if ut_status == 'UNVERIFIED' %}selected{% endif %}>Unverified</option>
+      <option value="FALSE" {% if ut_status == 'FALSE' %}selected{% endif %}>False</option>
+    </select>
+  </div>
+  <div><label>Relationship status</label>
+    <select name="status">
+      <option value="">All</option>
+      {% for s in statuses %}
+      <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ s.replace('_',' ') }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div><label>Min score</label><input type="number" name="min_score" value="{{ min_score }}" style="width:70px"></div>
+  <div><button type="submit">Filter</button></div>
+</form>
+
+<div class="panel">
+<table>
+  <tr>
+    <th><a href="?sort=score&order={{ 'asc' if sort=='score' and order=='desc' else 'desc' }}">Score</a></th>
+    <th><a href="?sort=name&order={{ 'asc' if sort=='name' and order=='desc' else 'desc' }}">Name</a></th>
+    <th><a href="?sort=company&order={{ 'asc' if sort=='company' and order=='desc' else 'desc' }}">Company</a></th>
+    <th>Title</th>
+    <th>Location</th>
+    <th>UT</th>
+    <th>Category</th>
+    <th><a href="?sort=status&order={{ 'asc' if sort=='status' and order=='desc' else 'desc' }}">Status</a></th>
+    <th>Last Contact</th>
+    <th>Next Action</th>
+    <th>Meeting</th>
+    <th>Email</th>
+  </tr>
+  {% for p in people %}
+  <tr>
+    <td>{{ p.total_score }}</td>
+    <td><a class="plain" href="/prospects/{{ p.id }}">{{ p.full_name }}</a></td>
+    <td>{{ m.company_name(p) }}</td>
+    <td>{{ p.current_title }}</td>
+    <td>{{ p.location }}</td>
+    <td>{{ m.ut_badge(p.ut_status) }}</td>
+    <td>{{ p.category }}</td>
+    <td>{{ m.status_badge(p.relationship.status if p.relationship else None) }}</td>
+    <td>{{ p.relationship.last_contact.strftime('%Y-%m-%d') if p.relationship and p.relationship.last_contact else '-' }}</td>
+    <td>{{ p.relationship.next_action_date.strftime('%Y-%m-%d') if p.relationship and p.relationship.next_action_date else '-' }}</td>
+    <td>{{ p.relationship.meeting_status or '-' if p.relationship else '-' }}</td>
+    <td>{{ p.emails[0].email_address if p.emails else '-' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+{% endblock %}

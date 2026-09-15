@@ -1,0 +1,11 @@
+{% macro ut_badge(status) -%}
+<span class="badge {{ status|lower }}">{{ status }}</span>
+{%- endmacro %}
+
+{% macro status_badge(status) -%}
+<span class="badge {{ status|lower }}">{{ status.replace('_', ' ') if status else 'UNKNOWN' }}</span>
+{%- endmacro %}
+
+{% macro company_name(p) -%}
+{{ p.current_company.name if p.current_company else 'UNKNOWN' }}
+{%- endmacro %}
