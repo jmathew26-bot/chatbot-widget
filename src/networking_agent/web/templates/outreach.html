@@ -4,6 +4,8 @@
 {% block content %}
 <h1>Outreach review</h1>
 
+{% if message %}<p class="panel">{{ message }}</p>{% endif %}
+
 {% if ready_no_draft %}
 <h2>Ready for review, no draft yet ({{ ready_no_draft|length }})</h2>
 <div class="panel">

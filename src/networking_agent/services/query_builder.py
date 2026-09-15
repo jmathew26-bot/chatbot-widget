@@ -10,6 +10,8 @@ from __future__ import annotations
 import itertools
 import random
 
+from networking_agent.services.companies import guess_domain
+
 UT_PHRASES = [
     '"University of Texas at Austin"',
     '"UT Austin"',
@@ -41,7 +43,7 @@ def build_tech_sales_queries(
             q += f' "{location}"'
         queries.append(q)
     for company in companies:
-        queries.append(f'site:{_guess_domain(company)} "University of Texas at Austin"')
+        queries.append(f'site:{guess_domain(company)} "University of Texas at Austin"')
     for ut_phrase, title in itertools.product(UT_PHRASES, titles):
         q = f'{ut_phrase} "{title}" technology sales'
         if location:
@@ -66,7 +68,7 @@ def build_cre_queries(
             q += f' "{location}"'
         queries.append(q)
     for company in companies:
-        queries.append(f'site:{_guess_domain(company)} "University of Texas at Austin"')
+        queries.append(f'site:{guess_domain(company)} "University of Texas at Austin"')
     random.shuffle(queries)
     return _dedupe_preserve_order(queries)[:limit]
 
@@ -75,16 +77,3 @@ def build_queries(category: str, titles: list[str], companies: list[str], locati
     if category == "cre":
         return build_cre_queries(titles, companies, location, limit)
     return build_tech_sales_queries(titles, companies, location, limit)
-
-
-def _guess_domain(company_name: str) -> str:
-    cleaned = (
-        company_name.lower()
-        .replace(" & ", "")
-        .replace("&", "")
-        .replace(",", "")
-        .replace(".", "")
-        .split(" (")[0]
-    )
-    cleaned = "".join(ch for ch in cleaned if ch.isalnum())
-    return f"{cleaned}.com"

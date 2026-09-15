@@ -77,8 +77,9 @@ def classify_reply(ctx: AgentContext, text: str) -> ReplyClassificationResult:
     return _heuristic_classify(text)
 
 
-def apply_reply(ctx: AgentContext, person: Person, reply_text: str) -> ReplyClassificationResult:
-    result = classify_reply(ctx, reply_text)
+def _apply_classification(
+    ctx: AgentContext, person: Person, result: ReplyClassificationResult, extra_payload: dict | None = None
+) -> None:
     relationship = person.relationship
     relationship.reply_status = result.classification.value
 
@@ -104,15 +105,83 @@ def apply_reply(ctx: AgentContext, person: Person, reply_text: str) -> ReplyClas
         relationship.status = RelationshipStatus.NURTURE.value
     # NEEDS_FOLLOW_UP / AUTOMATED_RESPONSE / UNKNOWN: leave status + cadence as-is.
 
+    payload = {"classification": result.classification.value, "confidence": result.confidence}
+    payload.update(extra_payload or {})
     ctx.session.add(
-        Activity(
-            person_id=person.id,
-            activity_type=ActivityType.REPLY_RECEIVED.value,
-            payload={"classification": result.classification.value, "confidence": result.confidence},
-        )
+        Activity(person_id=person.id, activity_type=ActivityType.REPLY_RECEIVED.value, payload=payload)
     )
     log_action(
         "response", "reply_classified", person=person.full_name,
         classification=result.classification.value, confidence=result.confidence,
     )
+
+
+def apply_reply(ctx: AgentContext, person: Person, reply_text: str) -> ReplyClassificationResult:
+    """Manual entry path: `network inbox --person-id X --reply-text '...'`
+    or the web Replies form."""
+    result = classify_reply(ctx, reply_text)
+    _apply_classification(ctx, person, result, extra_payload={"source": "manual"})
     return result
+
+
+def check_replies_for_person(ctx: AgentContext, person: Person) -> ReplyClassificationResult | None:
+    """Looks at the Gmail thread of the most recently sent Outreach for
+    this person, finds any message not already processed and not from us,
+    and classifies+applies it. Returns None if there's nothing new (no
+    thread_id -- i.e. never sent via Gmail -- or no new messages)."""
+    sent_with_thread = [
+        o for o in person.outreach if o.status == "SENT" and o.thread_id and o.sent_at is not None
+    ]
+    if not sent_with_thread:
+        return None
+    outreach = max(sent_with_thread, key=lambda o: o.sent_at)
+
+    messages = ctx.email.list_thread_messages(outreach.thread_id)
+    if not messages:
+        return None
+
+    sender_email = (ctx.settings.gmail_sender_email or "").lower()
+    already_checked = outreach.last_reply_checked_message_id
+    seen_marker = already_checked is None
+    new_messages = []
+    for msg in messages:
+        if not seen_marker:
+            if msg.message_id == already_checked:
+                seen_marker = True
+            continue
+        if sender_email and sender_email in msg.from_address.lower():
+            continue  # our own message in the thread
+        new_messages.append(msg)
+
+    if not new_messages:
+        return None
+
+    latest = new_messages[-1]
+    result = classify_reply(ctx, latest.body_text)
+    outreach.last_reply_checked_message_id = latest.message_id
+    _apply_classification(
+        ctx, person, result,
+        extra_payload={"source": "gmail_thread", "message_id": latest.message_id, "from": latest.from_address},
+    )
+    return result
+
+
+def check_all_replies(ctx: AgentContext) -> list[tuple[Person, ReplyClassificationResult]]:
+    """Scans every CONTACTED/FOLLOW_UP relationship's Gmail thread for new
+    replies. No-ops (returns []) when the EmailProvider has no real
+    threads (ConsoleEmailProvider dry-run mode)."""
+    from sqlalchemy import select
+
+    from networking_agent.db.models import Relationship
+
+    rows = ctx.session.execute(
+        select(Relationship).where(
+            Relationship.status.in_(["CONTACTED", "FOLLOW_UP_1", "FOLLOW_UP_2"])
+        )
+    ).scalars()
+    found = []
+    for relationship in rows:
+        result = check_replies_for_person(ctx, relationship.person)
+        if result is not None:
+            found.append((relationship.person, result))
+    return found

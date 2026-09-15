@@ -44,6 +44,12 @@ src/networking_agent/
     context.py                # AgentContext: bundles session + settings + all providers
     discovery.py, verification.py, research.py, scoring.py, email_agent.py,
     followup.py, response.py, scheduling.py, crm.py, analytics.py
+    pipeline.py                # shared discover->verify->research->score->promote->email-discover
+                                # sequence used by both `network discover` and `network live-test`
+    email_discovery.py         # calls PeopleDataProvider + EmailVerificationProvider per person
+    sending.py                 # single choke point for actually sending: approval gate,
+                                # verification-status gate, daily/live-test send cap, idempotent send
+    diagnostics.py              # `network doctor` checks -- read-only, never prints secrets
   services/                  # pure-function helpers agents share, independently unit-testable
     query_builder.py           # varied multi-pattern search query generation
     dedupe.py                  # normalized-identity duplicate prevention
@@ -72,10 +78,16 @@ VERIFICATION     -> UTStatus (VERIFIED/LIKELY/UNVERIFIED/FALSE) + rationale + Ed
 RESEARCH         -> additional Source rows, FACT/INFERENCE-tagged findings, personalization angles
 SCORING          -> 7 sub-scores + total (0-100) + networking_thesis; CRM promotes to
                     READY_FOR_REVIEW automatically only if VERIFIED + score >= review threshold
+EMAIL DISCOVERY  -> PeopleDataProvider.find_email() + EmailVerificationProvider.verify();
+                    creates an EmailRecord if (and only if) one is found -- never guessed
 EMAIL            -> Outreach row, status=DRAFT (never auto-sent)
 [human]          -> network review: Approve / Edit / Skip / Block
+SEND             -> agents/sending.py: approval gate -> daily/live-test cap -> only
+                    VERIFIED/HIGH_CONFIDENCE emails -> real send, thread_id captured
 FOLLOW-UP        -> computes next_action_date (business days), enforces 3-attempt max
-RESPONSE         -> classifies replies, cancels remaining follow-ups on ANY reply (+/-)
+RESPONSE         -> `network inbox` scans each contacted person's Gmail thread for
+                    messages not already processed and not from us, classifies them,
+                    and cancels remaining follow-ups on ANY reply (+/-)
 SCHEDULING       -> proposes/creates calendar events, collision-checked against calendar + DB
 CRM              -> owns the Relationship state machine + Activity audit log
 ANALYTICS        -> read-only response/meeting-rate rollups by industry/title/geo/template/etc.
@@ -95,9 +107,10 @@ the caller falls back to a deterministic path instead.
 | Research/email prose, reply classification | Yes -- deterministic fact-only fallback; better with a key | Anthropic (`ANTHROPIC_API_KEY`) |
 | UT Austin verification | Yes -- keyword-based fallback distinguishing UT Austin from other UT-system schools; better with an LLM | (same Anthropic key) |
 | Scoring | Yes, always -- intentionally rule-based, not LLM-based, so it's reproducible/testable | none |
-| Work email discovery | No -- returns nothing rather than guessing | Hunter.io (`HUNTER_API_KEY`); Apollo/PDL/RocketReach pluggable behind the same `PeopleDataProvider` interface |
-| Email verification | Partial -- free MX/A-record check caps at HIGH_CONFIDENCE | any paid verifier (ZeroBounce, NeverBounce, ...) can be added behind `EmailVerificationProvider` |
-| Sending email | Yes -- writes to `data/outbox/` instead of sending (dry-run) | Gmail API OAuth (`GMAIL_CREDENTIALS_JSON`/`GMAIL_TOKEN_JSON`) for real sending |
+| Work email discovery | No -- returns nothing rather than guessing (`agents/email_discovery.py` runs automatically during discovery, just finds nothing without a key) | Hunter.io (`HUNTER_API_KEY`); Apollo/PDL/RocketReach pluggable behind the same `PeopleDataProvider` interface |
+| Email verification | Partial -- free MX/A-record check caps at HIGH_CONFIDENCE, used to upgrade (never downgrade) a provider's own verdict | any paid verifier (ZeroBounce, NeverBounce, ...) can be added behind `EmailVerificationProvider` |
+| Sending email | Yes -- writes to `data/outbox/` instead of sending (dry-run); real send still requires an email that's VERIFIED/HIGH_CONFIDENCE and under the daily send cap | Gmail API OAuth (`GMAIL_CREDENTIALS_JSON`/`GMAIL_TOKEN_JSON`) for real sending |
+| Reply detection | No -- `network inbox` reports nothing new without real Gmail threads to scan; manual `--person-id --reply-text` always works | Gmail API OAuth (same credentials as sending) |
 | Calendar | Yes -- in-app collision detection only, no real calendar visibility | Google Calendar OAuth (`GOOGLE_CALENDAR_CREDENTIALS_JSON`/`GOOGLE_CALENDAR_TOKEN_JSON`) |
 
 ## 4. Implementation checklist / phase status
@@ -105,10 +118,12 @@ the caller falls back to a deterministic path instead.
 - [x] **Phase 1** -- project architecture, DB schema + Alembic migration, config loader, CLI skeleton, prospect schemas
 - [x] **Phase 2** -- search/discovery wiring (Google CSE adapter + LLM/heuristic extraction), UT verification, research pipeline, deterministic scoring
 - [x] **Phase 3** -- email generation (LLM + fact-only fallback), human review workflow (`network review`, Approve/Edit/Skip/Block), approval-gated send guard
-- [x] **Phase 4 (scaffolded, needs real credentials to go live)** -- `GmailEmailProvider` implemented against the Gmail API; defaults to `ConsoleEmailProvider` (dry-run) until `GMAIL_CREDENTIALS_JSON`/`GMAIL_TOKEN_JSON` exist on disk; follow-up cadence + 3-attempt cap implemented and tested
-- [x] **Phase 5 (scaffolded)** -- `ResponseAgent` classification (LLM + heuristic fallback) implemented and tested; live inbox polling requires Gmail credentials, manual ingestion (`network inbox --person-id --reply-text`) works today
-- [x] **Phase 6 (scaffolded)** -- `SchedulingAgent` + `GoogleCalendarProvider` implemented; collision detection works today against the app's own Meeting table even without Google Calendar credentials
+- [x] **Phase 4** -- email discovery (`agents/email_discovery.py`) wired into the pipeline: calls `PeopleDataProvider.find_email()` + `EmailVerificationProvider.verify()` for every discovered person; send gating (`agents/sending.py`) only allows VERIFIED/HIGH_CONFIDENCE addresses through, regardless of approval status. Needs `HUNTER_API_KEY` to actually find emails; without it, people simply have no email on file.
+- [x] **Phase 5** -- `GmailEmailProvider` sends and captures the Gmail `threadId`; `agents/response.py` scans each contacted person's thread (`list_thread_messages`), skips messages already processed (`Outreach.last_reply_checked_message_id`) and messages from our own sender address, classifies the newest new one, and applies it (stops follow-ups, updates relationship state). `network inbox` / the web Replies page trigger this. Needs `GMAIL_CREDENTIALS_JSON`/`GMAIL_TOKEN_JSON` to have real threads to scan; manual ingestion (`--person-id --reply-text`) always works.
+- [x] **Phase 6** -- `SchedulingAgent` + `GoogleCalendarProvider` implemented; collision detection works today against the app's own Meeting table even without Google Calendar credentials.
 - [x] **Phase 7** -- web dashboard (`network serve`): Today/Prospects/Outreach/Replies/Meetings/Relationships/Analytics/Settings, server-rendered (FastAPI + Jinja2, no JS build step), calling the same agent/service functions as the CLI so there's one source of truth for business logic. Binds to `127.0.0.1` by default; no auth layer, so keep it local unless you put one in front of it.
+- [x] **Phase 8** -- `LIVE_TEST_MODE` (env-driven, also force-enabled by the `network live-test` command itself): caps discovery at 20/run and sends at 5/day, enforced centrally in `agents/sending.py` so the CLI and web dashboard can't drift out of sync. Approval is required in every mode, always.
+- [x] **Phase 9** -- `network doctor`: reports DB connectivity, LLM/search/email-discovery provider configuration, Gmail/Calendar OAuth status (via `refresh_token` presence, never constructing a real provider so it never triggers an interactive OAuth flow), missing recommended env vars, current send mode, and live-test mode -- without ever printing a secret value.
 
 ## 5. Safety properties enforced in code (not just docs)
 
@@ -124,3 +139,12 @@ the caller falls back to a deterministic path instead.
   (the Outreach's UUID) so a retried send can never double-send.
 - UT status FALSE (a different UT-system school) caps the total score at
   40 regardless of every other factor, so it can never auto-queue.
+- `agents/sending.py` is the only code path that actually sends: it gates
+  on approval status, then on email `verification_status` (only
+  VERIFIED/HIGH_CONFIDENCE), then on the daily/live-test send cap, in that
+  order -- both `network send` and the web dashboard's Outreach page call
+  this one function, so neither can drift out of sync with the other.
+- `network doctor` and `agents/diagnostics.py` never construct a real
+  `GmailEmailProvider`/`GoogleCalendarProvider` (which would trigger an
+  interactive OAuth flow) -- they only check file presence and whether a
+  saved token has a `refresh_token`, and never print a secret value.

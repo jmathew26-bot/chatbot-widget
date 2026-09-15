@@ -8,11 +8,10 @@ from rich.panel import Panel
 from rich.table import Table
 from sqlalchemy import select
 
-from networking_agent.agents import analytics, crm, discovery, email_agent, followup, research, response, scheduling, scoring
-from networking_agent.agents import verification as verification_agent
+from networking_agent.agents import analytics, crm, diagnostics, discovery, email_agent, followup, pipeline, response, scheduling, sending
 from networking_agent.agents.context import AgentContext
 from networking_agent.config import get_settings
-from networking_agent.db.models import EmailRecord, Outreach, Person, Relationship
+from networking_agent.db.models import Outreach, Person, Relationship
 from networking_agent.db.session import init_db, session_scope
 from networking_agent.enums import OutreachStatus, RelationshipStatus, UTStatus
 from networking_agent.logging_utils import configure_logging
@@ -61,31 +60,48 @@ def discover(
         ctx = AgentContext.build(session)
         count = count or ctx.settings.limits.default_discover_count
         count = min(count, ctx.settings.limits.daily_discovery_limit)
-
-        people = discovery.discover(ctx, category, location, count)
-        if not people:
-            console.print(
-                "[yellow]No new prospects found.[/yellow] If GOOGLE_CSE_API_KEY / GOOGLE_CSE_CX are not "
-                "set in .env, discovery has no search provider and will always return zero results -- "
-                "this is intentional (no hallucinated prospects). See .env.example."
-            )
-            return
-
-        for person in people:
-            verification_agent.verify_ut_status(ctx, person)
-            research.research_person(ctx, person)
-            scoring.score_person(ctx, person)
-            crm.promote_after_scoring(ctx, person)
-        session.flush()
-        console.print(_person_summary_table(people))
-        console.print(f"[green]{len(people)} new prospect(s) discovered and scored.[/green]")
+        _run_discovery(ctx, category, location, count)
 
 
-def _get_primary_email(person: Person) -> EmailRecord | None:
-    for e in person.emails:
-        if e.is_primary:
-            return e
-    return person.emails[0] if person.emails else None
+@app.command("live-test")
+def live_test(
+    category: str = typer.Option(..., help="tech-sales | cre"),
+    location: str = typer.Option(None, help="e.g. Austin"),
+    count: int = typer.Option(20, help="Hard-capped at 20 regardless of this value"),
+) -> None:
+    """Run the real pipeline (discover -> verify UT -> research -> score ->
+    find/verify email) with hard safety ceilings for validating credentials:
+    max 20 discovered, max 5 sends/day, approval always required. Forces
+    LIVE_TEST_MODE on for this run regardless of the .env setting, so the
+    5/day send cap applies even if you forgot to set it."""
+    configure_logging()
+    with session_scope() as session:
+        ctx = AgentContext.build(session)
+        ctx.settings.live_test_mode = True
+        count = min(count, ctx.settings.live_test_max_discover)
+        console.print(
+            f"[bold]LIVE TEST MODE[/bold]: discovering up to {count} real prospects, "
+            f"max {ctx.settings.live_test_max_sends_per_day} sends/day, approval required for every message."
+        )
+        _run_discovery(ctx, category, location, count)
+
+
+def _run_discovery(ctx: AgentContext, category: str, location: str | None, count: int) -> None:
+    people = discovery.discover(ctx, category, location, count)
+    if not people:
+        console.print(
+            "[yellow]No new prospects found.[/yellow] If GOOGLE_CSE_API_KEY / GOOGLE_CSE_CX are not "
+            "set in .env, discovery has no search provider and will always return zero results -- "
+            "this is intentional (no hallucinated prospects). See .env.example."
+        )
+        return
+
+    pipeline.enrich_discovered_people(ctx, people)
+    console.print(_person_summary_table(people))
+    console.print(f"[green]{len(people)} new prospect(s) discovered, verified, researched, scored, and email-checked.[/green]")
+
+
+_get_primary_email = sending.get_primary_email
 
 
 def _display_prospect(ctx: AgentContext, person: Person, outreach: Outreach, warnings: list[str]) -> None:
@@ -207,36 +223,14 @@ def send(limit: int = 50) -> None:
             console.print("[yellow]Nothing approved and ready to send.[/yellow]")
             return
 
-        from networking_agent.adapters.base import EmailMessage
-
         sent = 0
         for outreach in pending:
-            person = outreach.person
-            crm.assert_approved_for_sending(outreach)
-            email_record = _get_primary_email(person)
-            if email_record is None:
-                console.print(f"[red]Skipping {person.full_name}: no email on file.[/red]")
-                continue
-            if email_record.verification_status in ("BOUNCED", "DO_NOT_CONTACT"):
-                console.print(f"[red]Skipping {person.full_name}: email is {email_record.verification_status}.[/red]")
-                continue
-
-            message = EmailMessage(to_address=email_record.email_address, subject=outreach.subject, body=outreach.body)
-            result = ctx.email.send(message, idempotency_key=outreach.idempotency_key)
-            now = dt.datetime.now(dt.timezone.utc)
-            if result.success:
-                outreach.status = OutreachStatus.SENT.value
-                outreach.sent_at = now
-                outreach.provider_message_id = result.provider_message_id
-                followup.register_sent(ctx.settings, person.relationship, outreach.sequence_number, now)
-                from networking_agent.db.models import Activity
-                from networking_agent.enums import ActivityType
-                session.add(Activity(person_id=person.id, activity_type=ActivityType.EMAIL_SENT.value, payload={"outreach_id": outreach.id}))
+            outcome = sending.send_outreach(ctx, outreach)
+            if outcome.sent:
                 sent += 1
-                console.print(f"[green]Sent to {person.full_name}.[/green]")
+                console.print(f"[green]Sent to {outreach.person.full_name}.[/green]")
             else:
-                outreach.status = OutreachStatus.FAILED.value
-                console.print(f"[red]Failed to send to {person.full_name}: {result.error}[/red]")
+                console.print(f"[red]Skipping {outreach.person.full_name}: {outcome.reason}[/red]")
             session.commit()
         console.print(f"[bold]{sent}/{len(pending)} sent.[/bold]")
 
@@ -310,8 +304,10 @@ def inbox(
     person_id: int = typer.Option(None, help="Manually classify a reply for this person id"),
     reply_text: str = typer.Option(None, help="Raw reply text (used with --person-id)"),
 ) -> None:
-    """Show/process replies. Without a configured EmailProvider (Gmail),
-    there is no live inbox to poll -- use --person-id/--reply-text to
+    """Check for replies and apply them (stop follow-ups, update relationship
+    state). With Gmail configured, scans the thread of every CONTACTED/
+    FOLLOW_UP person's most recent sent email for new messages and matches
+    them automatically. Without Gmail, use --person-id/--reply-text to
     manually ingest a reply you received outside the system."""
     configure_logging()
     with session_scope() as session:
@@ -326,17 +322,15 @@ def inbox(
             console.print(f"[green]Classified as {result.classification.value}[/green] ({result.rationale})")
             return
 
-        since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=30)
-        raw_replies = ctx.email.fetch_replies(since)
-        if not raw_replies:
+        found = response.check_all_replies(ctx)
+        if not found:
             console.print(
-                "[yellow]No replies fetched.[/yellow] (ConsoleEmailProvider never has replies -- configure "
-                "Gmail credentials, or use `network inbox --person-id X --reply-text '...'` to manually record one.)"
+                "[yellow]No new replies found.[/yellow] (Requires Gmail credentials to scan threads -- "
+                "otherwise use `network inbox --person-id X --reply-text '...'` to manually record one.)"
             )
             return
-        console.print(f"[bold]{len(raw_replies)} raw message(s) fetched -- manual matching required.[/bold]")
-        for r in raw_replies:
-            console.print(r)
+        for person, result in found:
+            console.print(f"[green]{person.full_name}: classified as {result.classification.value}[/green] ({result.rationale})")
 
 
 @app.command()
@@ -387,6 +381,30 @@ def serve(
         )
     console.print(f"[green]Serving dashboard at http://{host}:{port}[/green]")
     uvicorn.run("networking_agent.web.app:app", host=host, port=port, reload=reload)
+
+
+_STATUS_STYLE = {"ok": "green", "warning": "yellow", "not_configured": "yellow", "error": "red"}
+
+
+@app.command()
+def doctor() -> None:
+    """Diagnose configuration: database, LLM/search/email-discovery
+    providers, Gmail/Calendar OAuth status, missing env vars, send mode,
+    and live-test mode. Never prints secret values."""
+    settings = get_settings()
+    results = diagnostics.run_diagnostics(settings)
+    table = Table(title="network doctor")
+    table.add_column("Check")
+    table.add_column("Status")
+    table.add_column("Detail")
+    any_error = False
+    for r in results:
+        style = _STATUS_STYLE.get(r.status, "white")
+        table.add_row(r.name, f"[{style}]{r.status}[/{style}]", r.detail)
+        any_error = any_error or r.status == "error"
+    console.print(table)
+    if any_error:
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

@@ -16,19 +16,47 @@ import networking_agent.db.models  # noqa: F401
 
 
 class FakeEmailProvider:
+    """Test double that also simulates Gmail threading: send() opens a
+    thread keyed off the idempotency key, and tests can push simulated
+    incoming messages into it via add_reply() to exercise
+    response.check_all_replies() without real Gmail credentials."""
+
     def __init__(self):
         self.sent = []
+        self.threads: dict[str, list] = {}
+        self._next_message_id = 1
 
     def send(self, message, idempotency_key: str):
         from networking_agent.adapters.base import SendResult
 
-        if any(m["idempotency_key"] == idempotency_key for m in self.sent):
-            return SendResult(success=True, provider_message_id=idempotency_key)
-        self.sent.append({"message": message, "idempotency_key": idempotency_key})
-        return SendResult(success=True, provider_message_id=idempotency_key)
+        existing = next((m for m in self.sent if m["idempotency_key"] == idempotency_key), None)
+        if existing:
+            return SendResult(success=True, provider_message_id=idempotency_key, thread_id=existing["thread_id"])
+        thread_id = f"thread-{idempotency_key}"
+        self.sent.append({"message": message, "idempotency_key": idempotency_key, "thread_id": thread_id})
+        self.threads.setdefault(thread_id, [])
+        return SendResult(success=True, provider_message_id=idempotency_key, thread_id=thread_id)
 
     def fetch_replies(self, since):
         return []
+
+    def list_thread_messages(self, thread_id):
+        return self.threads.get(thread_id, [])
+
+    def add_reply(self, thread_id: str, from_address: str, body_text: str):
+        import datetime as dt
+
+        from networking_agent.adapters.base import IncomingMessage
+
+        message_id = f"msg-{self._next_message_id}"
+        self._next_message_id += 1
+        self.threads.setdefault(thread_id, []).append(
+            IncomingMessage(
+                message_id=message_id, from_address=from_address, body_text=body_text,
+                received_at=dt.datetime.now(dt.timezone.utc),
+            )
+        )
+        return message_id
 
 
 class FakeEmailVerifier(EmailVerificationProvider):

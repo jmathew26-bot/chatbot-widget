@@ -4,12 +4,43 @@ import datetime as dt
 import logging
 from pathlib import Path
 
-from networking_agent.adapters.base import EmailMessage, EmailProvider, SendResult
+from networking_agent.adapters.base import EmailMessage, EmailProvider, IncomingMessage, SendResult
 from networking_agent.config import REPO_ROOT, Settings
 
 logger = logging.getLogger("networking_agent.email")
 
 OUTBOX_DIR = REPO_ROOT / "data" / "outbox"
+
+
+def _extract_plain_text(payload: dict) -> str:
+    """Walk a Gmail message payload for the first text/plain part; falls
+    back to text/html with tags stripped if that's all the sender gave us."""
+    import base64
+    import re
+
+    def decode(data: str) -> str:
+        return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4)).decode("utf-8", errors="replace")
+
+    def walk(part: dict) -> tuple[str | None, str | None]:
+        mime_type = part.get("mimeType", "")
+        body_data = part.get("body", {}).get("data")
+        if mime_type == "text/plain" and body_data:
+            return decode(body_data), None
+        if mime_type == "text/html" and body_data:
+            return None, decode(body_data)
+        plain, html = None, None
+        for sub in part.get("parts", []) or []:
+            p, h = walk(sub)
+            plain = plain or p
+            html = html or h
+        return plain, html
+
+    plain, html = walk(payload)
+    if plain:
+        return plain.strip()
+    if html:
+        return re.sub(r"<[^>]+>", " ", html).strip()
+    return ""
 
 
 class ConsoleEmailProvider(EmailProvider):
@@ -41,6 +72,9 @@ class ConsoleEmailProvider(EmailProvider):
 
     def fetch_replies(self, since: dt.datetime) -> list[dict]:
         return []
+
+    def list_thread_messages(self, thread_id: str) -> list[IncomingMessage]:
+        return []  # no real thread exists in dry-run mode
 
 
 class GmailEmailProvider(EmailProvider):
@@ -88,7 +122,7 @@ class GmailEmailProvider(EmailProvider):
             result = self._service.users().messages().send(
                 userId="me", body={"raw": raw}
             ).execute()
-            return SendResult(success=True, provider_message_id=result.get("id"))
+            return SendResult(success=True, provider_message_id=result.get("id"), thread_id=result.get("threadId"))
         except Exception as e:  # noqa: BLE001
             logger.error("gmail send failed: %s", e)
             return SendResult(success=False, error=str(e))
@@ -104,6 +138,32 @@ class GmailEmailProvider(EmailProvider):
         for msg_meta in resp.get("messages", []):
             msg = self._service.users().messages().get(userId="me", id=msg_meta["id"]).execute()
             out.append(msg)
+        return out
+
+    def list_thread_messages(self, thread_id: str) -> list[IncomingMessage]:
+        try:
+            thread = self._service.users().threads().get(userId="me", id=thread_id, format="full").execute()
+        except Exception as e:  # noqa: BLE001
+            logger.error("gmail list_thread_messages failed for thread=%s: %s", thread_id, e)
+            return []
+
+        out = []
+        for msg in thread.get("messages", []):
+            headers = {h["name"].lower(): h["value"] for h in msg.get("payload", {}).get("headers", [])}
+            internal_date = msg.get("internalDate")
+            received_at = (
+                dt.datetime.fromtimestamp(int(internal_date) / 1000, tz=dt.timezone.utc)
+                if internal_date
+                else dt.datetime.now(dt.timezone.utc)
+            )
+            out.append(
+                IncomingMessage(
+                    message_id=msg["id"],
+                    from_address=headers.get("from", ""),
+                    body_text=_extract_plain_text(msg.get("payload", {})),
+                    received_at=received_at,
+                )
+            )
         return out
 
 

@@ -64,7 +64,12 @@ def _seed_person(SessionFactory, fake_search=None):
     research.research_person(ctx, person)
     scoring.score_person(ctx, person)
     crm.promote_after_scoring(ctx, person)
-    session.add(EmailRecord(person_id=person.id, email_address="jane.doe@snowflake.com", is_primary=True))
+    session.add(
+        EmailRecord(
+            person_id=person.id, email_address="jane.doe@snowflake.com", is_primary=True,
+            verification_status="HIGH_CONFIDENCE",
+        )
+    )
     session.commit()
     person_id = person.id
     session.close()
@@ -129,6 +134,34 @@ def test_skip_does_not_send(client):
 
     outreach = check.get(Outreach, 1)
     assert outreach.status == "SKIPPED"
+    check.close()
+
+
+def test_unverified_email_blocks_send(client):
+    """Only VERIFIED/HIGH_CONFIDENCE emails may enter the send queue --
+    an approved outreach to an UNVERIFIED address must not be sent."""
+    test_client, SessionFactory = client
+    person_id = _seed_person(SessionFactory)
+
+    downgrade_session = SessionFactory()
+    from networking_agent.db.models import EmailRecord, Person
+
+    person = downgrade_session.get(Person, person_id)
+    person.emails[0].verification_status = "UNVERIFIED"
+    downgrade_session.commit()
+    downgrade_session.close()
+
+    test_client.post(f"/outreach/draft/{person_id}", follow_redirects=True)
+    test_client.post("/outreach/1/approve", follow_redirects=True)
+    resp = test_client.post("/outreach/1/send", follow_redirects=False)
+    assert resp.status_code == 303
+    assert "not%20sent" in resp.headers["location"].lower()
+
+    check = SessionFactory()
+    from networking_agent.db.models import Outreach
+
+    outreach = check.get(Outreach, 1)
+    assert outreach.status == "APPROVED"  # never flipped to SENT
     check.close()
 
 

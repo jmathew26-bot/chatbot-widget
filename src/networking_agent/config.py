@@ -81,6 +81,13 @@ class Settings(BaseModel):
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
     autonomous_sending_enabled: bool = False
 
+    # LIVE_TEST_MODE: a hard safety ceiling for early real-world runs,
+    # independent of (and stricter than) limits.daily_discovery_limit /
+    # daily_email_limit. See agents/pipeline.py and cli.py `live-test`.
+    live_test_mode: bool = False
+    live_test_max_discover: int = 20
+    live_test_max_sends_per_day: int = 5
+
     database_url: str = "sqlite:///./data/networking.db"
 
     anthropic_api_key: str | None = None
@@ -148,6 +155,7 @@ def get_settings() -> Settings:
             "AUTONOMOUS_SENDING_ENABLED",
             bool(raw.get("autonomous_sending_enabled", False)),
         ),
+        live_test_mode=env_bool("LIVE_TEST_MODE", False),
         database_url=os.environ.get("DATABASE_URL", "sqlite:///./data/networking.db"),
         anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY") or None,
         anthropic_model=os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5"),

@@ -40,7 +40,16 @@ class EmailMessage:
 class SendResult:
     success: bool
     provider_message_id: str | None = None
+    thread_id: str | None = None
     error: str | None = None
+
+
+@dataclass
+class IncomingMessage:
+    message_id: str
+    from_address: str
+    body_text: str
+    received_at: dt.datetime
 
 
 class EmailProvider(abc.ABC):
@@ -51,6 +60,12 @@ class EmailProvider(abc.ABC):
     @abc.abstractmethod
     def fetch_replies(self, since: dt.datetime) -> list[dict]:
         ...
+
+    @abc.abstractmethod
+    def list_thread_messages(self, thread_id: str) -> list[IncomingMessage]:
+        """All messages in the given thread, oldest first. Used to detect
+        replies to a specific sent Outreach without relying on a blind
+        inbox scan."""
 
 
 @dataclass

@@ -42,3 +42,27 @@ def is_known_target_company(settings_targets: dict, category: str, name: str) ->
     companies = settings_targets.get(key, {}).get("companies", [])
     normalized_targets = {normalize_company(c) for c in companies}
     return normalize_company(name) in normalized_targets
+
+
+def guess_domain(company: Company | str) -> str | None:
+    """Best-effort domain guess for a company name, used when no verified
+    website is on file. This is a heuristic (companyname.com) -- it is
+    intentionally never treated as a verified fact, only as an input to
+    PeopleDataProvider.find_email(), whose own confidence/verification
+    status is what actually gates sending."""
+    website = company.website if isinstance(company, Company) else None
+    if website:
+        return website.replace("https://", "").replace("http://", "").split("/")[0]
+    name = company if isinstance(company, str) else company.name
+    if not name:
+        return None
+    cleaned = (
+        name.lower()
+        .replace(" & ", "")
+        .replace("&", "")
+        .replace(",", "")
+        .replace(".", "")
+        .split(" (")[0]
+    )
+    cleaned = "".join(ch for ch in cleaned if ch.isalnum())
+    return f"{cleaned}.com" if cleaned else None

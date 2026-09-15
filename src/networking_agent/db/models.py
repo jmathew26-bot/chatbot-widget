@@ -218,6 +218,8 @@ class Outreach(Base):
     approved_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     sent_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     provider_message_id: Mapped[str | None] = mapped_column(String(255), default=None)
+    thread_id: Mapped[str | None] = mapped_column(String(255), default=None)
+    last_reply_checked_message_id: Mapped[str | None] = mapped_column(String(255), default=None)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     person: Mapped[Person] = relationship(back_populates="outreach")

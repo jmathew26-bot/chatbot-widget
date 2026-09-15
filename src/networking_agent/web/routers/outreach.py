@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-import datetime as dt
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from networking_agent.adapters.base import EmailMessage
-from networking_agent.agents import crm, email_agent, followup
-from networking_agent.db.models import Activity, Outreach, Person, Relationship
-from networking_agent.enums import ActivityType, OutreachStatus, RelationshipStatus
+from networking_agent.agents import crm, email_agent, sending
+from networking_agent.db.models import Outreach, Person, Relationship
+from networking_agent.enums import OutreachStatus, RelationshipStatus
 from networking_agent.web.deps import get_ctx, get_db
 from networking_agent.web.templating import templates
 
@@ -25,7 +24,7 @@ def _get_outreach_or_404(session: Session, outreach_id: int) -> Outreach:
 
 
 @router.get("/outreach")
-def list_outreach(request: Request, session: Session = Depends(get_db)):
+def list_outreach(request: Request, message: str = "", session: Session = Depends(get_db)):
     pending = session.execute(
         select(Outreach).where(Outreach.status.in_([OutreachStatus.DRAFT.value, OutreachStatus.EDITED.value, OutreachStatus.APPROVED.value]))
         .order_by(Outreach.created_at.desc())
@@ -41,7 +40,7 @@ def list_outreach(request: Request, session: Session = Depends(get_db)):
     ).scalars().all()
     return templates.TemplateResponse(
         request, "outreach.html",
-        {"pending": pending, "ready_no_draft": ready_no_draft, "sent": sent, "active": "outreach"},
+        {"pending": pending, "ready_no_draft": ready_no_draft, "sent": sent, "active": "outreach", "message": message},
     )
 
 
@@ -99,8 +98,9 @@ def block(outreach_id: int, reason: str = Form("not a fit"), session: Session = 
 def send_one(outreach_id: int, session: Session = Depends(get_db)):
     ctx = get_ctx(session)
     outreach = _get_outreach_or_404(session, outreach_id)
-    _send(ctx, session, outreach)
-    return RedirectResponse(url="/outreach", status_code=303)
+    outcome = sending.send_outreach(ctx, outreach)
+    msg = "Sent." if outcome.sent else f"Not sent: {outcome.reason}"
+    return RedirectResponse(url=f"/outreach?message={quote(msg)}", status_code=303)
 
 
 @router.post("/outreach/send-all")
@@ -109,29 +109,15 @@ def send_all(session: Session = Depends(get_db)):
     pending = session.execute(
         select(Outreach).where(Outreach.status.in_([OutreachStatus.APPROVED.value, OutreachStatus.EDITED.value]))
     ).scalars().all()
+    sent_count = 0
+    skipped: list[str] = []
     for outreach in pending:
-        _send(ctx, session, outreach)
-    return RedirectResponse(url="/outreach", status_code=303)
-
-
-def _send(ctx, session: Session, outreach: Outreach) -> None:
-    """Same guarded send path as `network send` -- approval-gated, never
-    sends a DRAFT/SKIPPED/BLOCKED outreach, idempotent on retry."""
-    crm.assert_approved_for_sending(outreach)
-    person = outreach.person
-    email_record = next((e for e in person.emails if e.is_primary), None) or (
-        person.emails[0] if person.emails else None
-    )
-    if email_record is None or email_record.verification_status in ("BOUNCED", "DO_NOT_CONTACT"):
-        return
-    message = EmailMessage(to_address=email_record.email_address, subject=outreach.subject, body=outreach.body)
-    result = ctx.email.send(message, idempotency_key=outreach.idempotency_key)
-    now = dt.datetime.now(dt.timezone.utc)
-    if result.success:
-        outreach.status = OutreachStatus.SENT.value
-        outreach.sent_at = now
-        outreach.provider_message_id = result.provider_message_id
-        followup.register_sent(ctx.settings, person.relationship, outreach.sequence_number, now)
-        session.add(Activity(person_id=person.id, activity_type=ActivityType.EMAIL_SENT.value, payload={"outreach_id": outreach.id}))
-    else:
-        outreach.status = OutreachStatus.FAILED.value
+        outcome = sending.send_outreach(ctx, outreach)
+        if outcome.sent:
+            sent_count += 1
+        else:
+            skipped.append(f"{outreach.person.full_name} ({outcome.reason})")
+    msg = f"Sent {sent_count}/{len(pending)}."
+    if skipped:
+        msg += " Skipped: " + "; ".join(skipped)
+    return RedirectResponse(url=f"/outreach?message={quote(msg)}", status_code=303)

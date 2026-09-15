@@ -4,11 +4,14 @@
 {% block content %}
 <h1>Replies</h1>
 
+{% if message %}<p class="panel">{{ message }}</p>{% endif %}
+
 <div class="panel">
-  <p class="muted">
-    Without a live inbox connection (Gmail), replies aren't fetched automatically.
-    Paste one in here to classify it and update follow-up/relationship state.
-  </p>
+  <form method="post" action="/replies/check">
+    <button type="submit" class="primary">Check Gmail threads for new replies</button>
+  </form>
+  <p class="muted" style="margin-top:8px;">Requires Gmail credentials (GMAIL_CREDENTIALS_JSON/GMAIL_TOKEN_JSON) --
+    otherwise this is always a no-op. Without it, paste a reply in below to classify it manually.</p>
   <form method="post" action="/replies/classify">
     <div style="margin-bottom:8px;">
       <label class="muted">Person</label><br>
