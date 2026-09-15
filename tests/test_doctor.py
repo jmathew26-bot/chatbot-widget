@@ -20,6 +20,19 @@ def test_check_database_error_for_bad_url():
     assert result.status == "error"
 
 
+def test_check_database_creates_missing_parent_directory(tmp_path):
+    """Regression: a fresh checkout has no data/ dir yet (before the first
+    `alembic upgrade head`) -- doctor must not report a false error just
+    because the directory doesn't exist."""
+    db_dir = tmp_path / "does" / "not" / "exist" / "yet"
+    assert not db_dir.exists()
+    # Absolute sqlite URLs use four slashes (sqlite:////abs/path) --
+    # SQLAlchemy's own convention, parsed via make_url rather than assumed.
+    result = diagnostics.check_database(_settings(database_url=f"sqlite:///{db_dir}/networking.db"))
+    assert result.status == "ok"
+    assert db_dir.exists()
+
+
 def test_check_llm_not_configured_without_key():
     result = diagnostics.check_llm(_settings(anthropic_api_key=None))
     assert result.status == "not_configured"

@@ -54,6 +54,9 @@ def check_database(settings: Settings) -> CheckResult:
     try:
         from sqlalchemy import create_engine, text
 
+        from networking_agent.db.session import ensure_sqlite_dir
+
+        ensure_sqlite_dir(settings.database_url)
         engine = create_engine(settings.database_url)
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
