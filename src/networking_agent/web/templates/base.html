@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{% block title %}Networking Agent{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <nav>
+    <span class="brand">🤘 Networking Agent</span>
+    <a href="/today" class="{% if active == 'today' %}active{% endif %}">Today</a>
+    <a href="/prospects" class="{% if active == 'prospects' %}active{% endif %}">Prospects</a>
+    <a href="/outreach" class="{% if active == 'outreach' %}active{% endif %}">Outreach</a>
+    <a href="/replies" class="{% if active == 'replies' %}active{% endif %}">Replies</a>
+    <a href="/meetings" class="{% if active == 'meetings' %}active{% endif %}">Meetings</a>
+    <a href="/relationships" class="{% if active == 'relationships' %}active{% endif %}">Relationships</a>
+    <a href="/analytics" class="{% if active == 'analytics' %}active{% endif %}">Analytics</a>
+    <a href="/settings" class="{% if active == 'settings' %}active{% endif %}">Settings</a>
+  </nav>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

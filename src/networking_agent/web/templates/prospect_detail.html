@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}{{ p.full_name }} · Networking Agent{% endblock %}
+{% block content %}
+<p><a class="plain" href="/prospects">← All prospects</a></p>
+<h1>{{ p.full_name }} {{ m.ut_badge(p.ut_status) }} {{ m.status_badge(p.relationship.status if p.relationship else None) }}</h1>
+
+<div class="panel">
+  <p><strong>{{ p.current_title }}</strong> at {{ m.company_name(p) }} &middot; {{ p.location }} &middot; {{ p.category }}</p>
+  <p><em>{{ p.networking_thesis or 'No thesis generated yet.' }}</em></p>
+  <p>Score: <strong>{{ p.total_score }}</strong>
+     (UT {{ p.ut_score }} / Career {{ p.career_relevance_score }} / Company {{ p.company_quality_score }} /
+     Seniority {{ p.seniority_score }} / Geo {{ p.geography_score }} / Interest {{ p.career_interest_score }} /
+     Relationship {{ p.relationship_value_score }})</p>
+  <p class="muted">UT rationale: {{ p.ut_status_rationale or 'n/a' }}</p>
+  <p>UT degree: {{ p.ut_degree }} {% if p.ut_grad_year %}({{ p.ut_grad_year }}){% endif %}</p>
+  {% if p.excluded %}<p class="warning">Excluded: {{ p.exclusion_reason }}</p>{% endif %}
+</div>
+
+<h2>Personalization angles</h2>
+<div class="panel">
+  {% if p.personalization_angles %}
+  <ul>{% for a in p.personalization_angles %}<li>{{ a }}</li>{% endfor %}</ul>
+  {% else %}<p class="muted">None found.</p>{% endif %}
+</div>
+
+<h2>Sources</h2>
+<div class="panel">
+  {% if p.sources %}
+  <ul>{% for s in p.sources %}<li><a class="plain" href="{{ s.url }}" target="_blank">{{ s.title or s.url }}</a> <span class="muted">({{ s.fact_type }})</span>{% if s.claim %} — {{ s.claim }}{% endif %}</li>{% endfor %}</ul>
+  {% else %}<p class="muted">No sources retained.</p>{% endif %}
+</div>
+
+<h2>Employment</h2>
+<div class="panel">
+  <table>
+    <tr><th>Title</th><th>Company</th><th>Current</th></tr>
+    {% for e in p.employment %}
+    <tr><td>{{ e.title }}</td><td>{{ e.company_name_raw }}</td><td>{{ 'Yes' if e.is_current else 'No' }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+
+<h2>Education</h2>
+<div class="panel">
+  <table>
+    <tr><th>Institution</th><th>Degree</th><th>Year</th><th>Fact type</th></tr>
+    {% for e in p.education %}
+    <tr><td>{{ e.institution }}</td><td>{{ e.degree }}</td><td>{{ e.graduation_year or '-' }}</td><td>{{ e.fact_type }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+
+<h2>Outreach history</h2>
+<div class="panel">
+  <table>
+    <tr><th>#</th><th>Status</th><th>Subject</th><th>Sent</th></tr>
+    {% for o in p.outreach %}
+    <tr><td>{{ o.sequence_number }}</td><td>{{ m.status_badge(o.status) }}</td><td>{{ o.subject }}</td><td>{{ o.sent_at.strftime('%Y-%m-%d') if o.sent_at else '-' }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+
+<h2>Activity timeline</h2>
+<div class="panel">
+  <table>
+    <tr><th>When</th><th>Type</th><th>Details</th></tr>
+    {% for a in p.activities|sort(attribute='created_at', reverse=True) %}
+    <tr><td>{{ a.created_at.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ a.activity_type }}</td><td class="muted">{{ a.payload }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+
+<h2>Add note</h2>
+<div class="panel">
+  <p class="muted">{{ p.relationship.notes or 'No notes yet.' if p.relationship else '' }}</p>
+  <form method="post" action="/relationships/{{ p.id }}/note">
+    <textarea name="note" placeholder="Add a note about this relationship..."></textarea>
+    <button type="submit" class="primary">Save note</button>
+  </form>
+</div>
+{% endblock %}

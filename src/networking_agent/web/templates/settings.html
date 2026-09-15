@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Settings · Networking Agent{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<p class="muted">Read-only view of config/config.yaml, .env, and USER_PROFILE.md. Edit those files directly and restart the server to change anything here.</p>
+
+<h2>Safety</h2>
+<div class="panel">
+  <p>Autonomous sending enabled: <strong>{{ settings.autonomous_sending_enabled }}</strong>
+  {% if not settings.autonomous_sending_enabled %}<span class="badge verified">SAFE — approval required</span>{% else %}<span class="badge false">AUTONOMOUS SENDING IS ON</span>{% endif %}</p>
+</div>
+
+<h2>Scoring weights</h2>
+<div class="panel">
+  <table>
+    <tr><th>Factor</th><th>Weight</th></tr>
+    <tr><td>UT Austin</td><td>{{ settings.scoring.weights.ut_austin }}</td></tr>
+    <tr><td>Career relevance</td><td>{{ settings.scoring.weights.career_relevance }}</td></tr>
+    <tr><td>Company quality</td><td>{{ settings.scoring.weights.company_quality }}</td></tr>
+    <tr><td>Seniority</td><td>{{ settings.scoring.weights.seniority }}</td></tr>
+    <tr><td>Geography</td><td>{{ settings.scoring.weights.geography }}</td></tr>
+    <tr><td>Career interest</td><td>{{ settings.scoring.weights.career_interest }}</td></tr>
+    <tr><td>Relationship value</td><td>{{ settings.scoring.weights.relationship_value }}</td></tr>
+  </table>
+</div>
+
+<h2>Follow-up cadence</h2>
+<div class="panel">
+  <p>Max attempts: {{ settings.followups.max_total_attempts }}</p>
+  <p>Follow-up 1: ~{{ settings.followups.followup_1_business_days }} business days after initial</p>
+  <p>Follow-up 2: ~{{ settings.followups.followup_2_business_days_after_followup_1 }} business days after follow-up 1</p>
+</div>
+
+<h2>Email rules</h2>
+<div class="panel">
+  <p>Length: {{ settings.email.min_words }}-{{ settings.email.default_max_words }} words (hard max {{ settings.email.hard_max_words }})</p>
+  <p>Tone: {{ settings.email.tone }}</p>
+  <p>Banned phrases: {{ settings.email.banned_phrases|join(', ') }}</p>
+</div>
+
+<h2>Targets</h2>
+<div class="panel">
+  <p><strong>Tech sales companies:</strong> {{ targets.get('tech_sales', {}).get('companies', [])|join(', ') }}</p>
+  <p><strong>CRE companies:</strong> {{ targets.get('cre', {}).get('companies', [])|join(', ') }}</p>
+  <p><strong>Excluded companies:</strong> {{ targets.get('excluded_companies', [])|join(', ') or 'none' }}</p>
+  <p><strong>Excluded people:</strong> {{ targets.get('excluded_people', [])|join(', ') or 'none' }}</p>
+</div>
+
+<h2>User profile (USER_PROFILE.md)</h2>
+<div class="panel">
+  <pre style="white-space:pre-wrap; font-size:13px;">{{ user_profile }}</pre>
+</div>
+{% endblock %}

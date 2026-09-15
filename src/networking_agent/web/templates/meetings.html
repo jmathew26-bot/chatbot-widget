@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Meetings · Networking Agent{% endblock %}
+{% block content %}
+<h1>Meetings</h1>
+
+<div class="panel">
+  <h2 style="margin-top:0">Propose slots</h2>
+  <form class="filter-form" method="get" action="/meetings">
+    <div><label>Person</label>
+      <select name="person_id">
+        <option value="">Choose...</option>
+        {% for p in people %}
+        <option value="{{ p.id }}" {% if person_id == p.id %}selected{% endif %}>{{ p.full_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div><label>Days ahead</label><input type="number" name="days_ahead" value="{{ days_ahead }}" style="width:70px"></div>
+    <div><label>Duration (min)</label><input type="number" name="duration" value="{{ duration }}" style="width:70px"></div>
+    <div><button type="submit">Find open slots</button></div>
+  </form>
+
+  {% if error %}<p class="warning">{{ error }}</p>{% endif %}
+
+  {% if selected_person %}
+  <h3>Open slots for {{ selected_person.full_name }}</h3>
+  {% if slots %}
+  <table>
+    <tr><th>Start</th><th>End</th><th>Type</th><th></th></tr>
+    {% for s in slots %}
+    <tr>
+      <td>{{ s.start.strftime('%Y-%m-%d %H:%M') }}</td>
+      <td>{{ s.end.strftime('%H:%M') }}</td>
+      <td>
+        <form class="inline" method="post" action="/meetings/schedule">
+          <input type="hidden" name="person_id" value="{{ selected_person.id }}">
+          <input type="hidden" name="start" value="{{ s.start.isoformat() }}">
+          <input type="hidden" name="duration" value="{{ duration }}">
+          <select name="meeting_type">
+            {% for mt in meeting_types %}<option value="{{ mt }}">{{ mt }}</option>{% endfor %}
+          </select>
+          <button type="submit" class="primary">Book</button>
+        </form>
+      </td>
+      <td></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">No open slots found in that window.</p>{% endif %}
+  {% endif %}
+</div>
+
+<h2>Upcoming &amp; past meetings</h2>
+<div class="panel">
+  <table>
+    <tr><th>Person</th><th>When</th><th>Duration</th><th>Type</th><th>Status</th></tr>
+    {% for meeting in meetings %}
+    <tr>
+      <td><a class="plain" href="/prospects/{{ meeting.person_id }}">{{ meeting.person.full_name }}</a></td>
+      <td>{{ meeting.scheduled_at.strftime('%Y-%m-%d %H:%M') }}</td>
+      <td>{{ meeting.duration_minutes }} min</td>
+      <td>{{ meeting.meeting_type }}</td>
+      <td>{{ meeting.status }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% if not meetings %}<p class="muted">No meetings scheduled yet.</p>{% endif %}
+</div>
+{% endblock %}
