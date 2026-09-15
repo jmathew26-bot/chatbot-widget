@@ -86,6 +86,12 @@ class CalendarProvider(abc.ABC):
     ) -> str:
         """Returns a calendar_event_id."""
 
+    @abc.abstractmethod
+    def delete_event(self, event_id: str) -> None:
+        """Used only by `network calendar-test-create`'s cleanup step today
+        -- not part of the normal scheduling flow, which never deletes a
+        real meeting automatically."""
+
 
 @dataclass
 class DiscoveredEmail:

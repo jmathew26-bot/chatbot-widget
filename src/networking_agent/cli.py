@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import datetime as dt
+import uuid
+from pathlib import Path
 
 import typer
 from rich.console import Console
@@ -405,6 +407,145 @@ def doctor() -> None:
     console.print(table)
     if any_error:
         raise typer.Exit(1)
+
+
+@app.command("gmail-test")
+def gmail_test() -> None:
+    """Authenticate through the real GmailEmailProvider (opens a browser
+    the first time; reuses/refreshes the saved token after that) and
+    confirm access by fetching the connected account's own profile.
+    Never sends anything."""
+    settings = get_settings()
+    if not settings.gmail_credentials_json or not Path(settings.gmail_credentials_json).exists():
+        console.print(
+            "[red]No Gmail OAuth client credentials configured (GMAIL_CREDENTIALS_JSON). See README.[/red]"
+        )
+        raise typer.Exit(1)
+    from networking_agent.adapters.email_provider import GmailEmailProvider
+
+    try:
+        provider = GmailEmailProvider(
+            settings.gmail_credentials_json, settings.gmail_token_json, settings.gmail_sender_email
+        )
+        email_address = provider.whoami()
+    except Exception as e:  # noqa: BLE001
+        console.print(f"[red]Gmail authentication/access failed: {e}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]Gmail OK[/green] -- authenticated as {email_address}")
+
+
+@app.command("calendar-test")
+def calendar_test() -> None:
+    """Authenticate through the real GoogleCalendarProvider (opens a
+    browser the first time) and confirm access by reading the primary
+    calendar's info and upcoming busy windows. Never creates anything."""
+    settings = get_settings()
+    if not settings.google_calendar_credentials_json or not Path(settings.google_calendar_credentials_json).exists():
+        console.print(
+            "[red]No Google Calendar OAuth client credentials configured "
+            "(GOOGLE_CALENDAR_CREDENTIALS_JSON). See README.[/red]"
+        )
+        raise typer.Exit(1)
+    from networking_agent.adapters.calendar_provider import GoogleCalendarProvider
+
+    try:
+        provider = GoogleCalendarProvider(
+            settings.google_calendar_credentials_json, settings.google_calendar_token_json,
+            settings.google_calendar_id,
+        )
+        info = provider.get_calendar_info()
+        now = dt.datetime.now(dt.timezone.utc)
+        busy = provider.list_busy(now, now + dt.timedelta(days=7))
+    except Exception as e:  # noqa: BLE001
+        console.print(f"[red]Calendar authentication/access failed: {e}[/red]")
+        raise typer.Exit(1)
+
+    console.print(
+        f"[green]Calendar OK[/green] -- {info.get('summary', settings.google_calendar_id)} "
+        f"(timezone {info.get('timeZone', '?')})"
+    )
+    if busy:
+        console.print("Upcoming busy windows (next 7 days, up to 5 shown):")
+        for slot in busy[:5]:
+            console.print(f"  {slot.start.isoformat()} - {slot.end.isoformat()}")
+    else:
+        console.print("No busy windows found in the next 7 days.")
+
+
+@app.command("gmail-test-send")
+def gmail_test_send(to: str = typer.Option(..., "--to", help="Recipient for the test email")) -> None:
+    """Sends ONE clearly-labeled test email through the real
+    GmailEmailProvider, to verify a message/thread ID comes back
+    correctly. Requires explicit confirmation -- never runs unattended."""
+    settings = get_settings()
+    console.print(
+        f"[yellow]This will send a REAL email to {to} through your connected Gmail account "
+        f"({settings.gmail_sender_email or 'the authenticated account'}).[/yellow]"
+    )
+    if not typer.confirm("Proceed?", default=False):
+        console.print("Cancelled -- nothing sent.")
+        raise typer.Exit(0)
+
+    from networking_agent.adapters.base import EmailMessage
+    from networking_agent.adapters.email_provider import GmailEmailProvider
+
+    provider = GmailEmailProvider(
+        settings.gmail_credentials_json, settings.gmail_token_json, settings.gmail_sender_email
+    )
+    message = EmailMessage(
+        to_address=to,
+        subject="[TEST] Networking Agent connectivity check",
+        body=(
+            "This is a one-time connectivity test sent by the Personal Networking Agent's "
+            "`network gmail-test-send` command. Safe to ignore or delete."
+        ),
+    )
+    result = provider.send(message, idempotency_key=f"gmail-test-send-{uuid.uuid4()}")
+    if result.success:
+        console.print(f"[green]Sent.[/green] message_id={result.provider_message_id} thread_id={result.thread_id}")
+        if not result.provider_message_id or not result.thread_id:
+            console.print("[yellow]Warning: Gmail did not return both a message_id and thread_id.[/yellow]")
+    else:
+        console.print(f"[red]Send failed: {result.error}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command("calendar-test-create")
+def calendar_test_create(
+    minutes_from_now: int = typer.Option(60, help="When to schedule the test event, minutes from now"),
+    duration: int = typer.Option(15, help="Test event duration in minutes"),
+) -> None:
+    """Creates ONE clearly-labeled temporary test event through the real
+    GoogleCalendarProvider, to verify an event ID comes back correctly.
+    Requires explicit confirmation, and offers to delete it again
+    immediately afterward."""
+    settings = get_settings()
+    start = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=minutes_from_now)
+    end = start + dt.timedelta(minutes=duration)
+    console.print(
+        f"[yellow]This will create a REAL event '[TEST] Networking Agent connectivity check' "
+        f"on calendar '{settings.google_calendar_id}' at {start.isoformat()}.[/yellow]"
+    )
+    if not typer.confirm("Proceed?", default=False):
+        console.print("Cancelled -- nothing created.")
+        raise typer.Exit(0)
+
+    from networking_agent.adapters.calendar_provider import GoogleCalendarProvider
+
+    provider = GoogleCalendarProvider(
+        settings.google_calendar_credentials_json, settings.google_calendar_token_json, settings.google_calendar_id
+    )
+    event_id = provider.create_event(
+        title="[TEST] Networking Agent connectivity check",
+        start=start, end=end, attendee_email=None,
+        description="Created by `network calendar-test-create`. Safe to delete.",
+    )
+    console.print(f"[green]Created.[/green] event_id={event_id}")
+    if typer.confirm("Delete this test event now?", default=True):
+        provider.delete_event(event_id)
+        console.print("[green]Deleted.[/green]")
+    else:
+        console.print(f"Leaving it in place -- delete manually later if needed (event_id={event_id}).")
 
 
 if __name__ == "__main__":

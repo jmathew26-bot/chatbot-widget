@@ -33,21 +33,57 @@ class CheckResult:
     detail: str
 
 
-def _oauth_status(creds_path: str | None, token_path: str | None) -> CheckResult:
+def _oauth_status(name: str, creds_path: str | None, token_path: str | None, scopes: list[str]) -> CheckResult:
+    """Distinguishable states, in order: not_configured (no client
+    credentials) / error (credentials file invalid, or dependency missing)
+    / warning (client credentials present, authentication required) /
+    error (token file invalid/incomplete) / warning (token expired but
+    refreshable) / ok (authorized). Never touches the network -- expiry is
+    read from the token file's own `expiry` timestamp, not verified
+    against Google, so this can't hang or fail on a flaky connection.
+    """
     if not creds_path or not Path(creds_path).exists():
-        return CheckResult("oauth", "not_configured", "no credentials file on disk")
+        return CheckResult(name, "not_configured", "no OAuth client credentials file on disk")
+
+    try:
+        client_config = json.loads(Path(creds_path).read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        return CheckResult(name, "error", f"credentials file is invalid: {e}")
+    if "installed" not in client_config and "web" not in client_config:
+        return CheckResult(
+            name, "error",
+            "credentials file is not a valid OAuth client JSON (missing 'installed'/'web' key) -- "
+            "make sure you downloaded an OAuth client ID (Desktop app), not a service-account key or API key",
+        )
+
     if not token_path or not Path(token_path).exists():
         return CheckResult(
-            "oauth", "warning",
-            "credentials file present but not yet authorized -- run the app once to complete OAuth",
+            name, "warning",
+            "OAuth client credentials present, authentication required -- "
+            f"run `network {'gmail-test' if 'gmail' in name else 'calendar-test'}` to authenticate",
         )
+
     try:
-        data = json.loads(Path(token_path).read_text())
-    except (OSError, json.JSONDecodeError) as e:
-        return CheckResult("oauth", "error", f"token file unreadable: {e}")
-    if data.get("refresh_token"):
-        return CheckResult("oauth", "ok", "authorized (refresh_token present)")
-    return CheckResult("oauth", "warning", "token present but no refresh_token -- may need re-auth")
+        from google.oauth2.credentials import Credentials
+
+        # google-auth itself requires refresh_token/client_id/client_secret
+        # to be present and raises ValueError otherwise -- so by the time
+        # this succeeds, creds.refresh_token is guaranteed truthy.
+        creds = Credentials.from_authorized_user_file(str(token_path), scopes)
+    except ImportError:
+        return CheckResult(
+            name, "error",
+            "google-auth-oauthlib / google-api-python-client not installed -- pip install -r requirements.txt",
+        )
+    except (OSError, json.JSONDecodeError, ValueError) as e:
+        return CheckResult(
+            name, "error",
+            f"token file is invalid or incomplete ({e}) -- delete it and re-authenticate",
+        )
+
+    if creds.expired:
+        return CheckResult(name, "warning", "access token expired, but refresh_token present -- will refresh automatically on next use")
+    return CheckResult(name, "ok", "authorized")
 
 
 def check_database(settings: Settings) -> CheckResult:
@@ -93,13 +129,18 @@ def check_email_discovery(settings: Settings) -> CheckResult:
 
 
 def check_gmail(settings: Settings) -> CheckResult:
-    result = _oauth_status(settings.gmail_credentials_json, settings.gmail_token_json)
-    return CheckResult("gmail", result.status, result.detail)
+    from networking_agent.adapters.email_provider import GMAIL_SCOPES
+
+    return _oauth_status("gmail", settings.gmail_credentials_json, settings.gmail_token_json, GMAIL_SCOPES)
 
 
 def check_calendar(settings: Settings) -> CheckResult:
-    result = _oauth_status(settings.google_calendar_credentials_json, settings.google_calendar_token_json)
-    return CheckResult("google_calendar", result.status, result.detail)
+    from networking_agent.adapters.calendar_provider import CALENDAR_SCOPES
+
+    return _oauth_status(
+        "google_calendar", settings.google_calendar_credentials_json, settings.google_calendar_token_json,
+        CALENDAR_SCOPES,
+    )
 
 
 def check_missing_env_vars() -> CheckResult:

@@ -10,3 +10,11 @@ data/
 .DS_Store
 config/config.yaml
 secrets/
+
+# Defense in depth: OAuth client/token files must never be committed even
+# if someone points GMAIL_CREDENTIALS_JSON/GOOGLE_CALENDAR_*_JSON outside
+# secrets/ by mistake.
+*_credentials.json
+*_token.json
+credentials.json
+token.json

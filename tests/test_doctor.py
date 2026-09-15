@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 
 from networking_agent.agents import diagnostics
@@ -8,6 +9,35 @@ def _settings(**overrides) -> Settings:
     base = dict(database_url="sqlite:///:memory:")
     base.update(overrides)
     return Settings(**base)
+
+
+def _valid_client_json() -> str:
+    """Minimal realistic shape of a downloaded "Desktop app" OAuth client
+    JSON -- has the 'installed' key our validation looks for."""
+    return json.dumps(
+        {
+            "installed": {
+                "client_id": "fake.apps.googleusercontent.com",
+                "client_secret": "fake-secret",
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+            }
+        }
+    )
+
+
+def _token_json(refresh_token: str | None = "r-123", expiry: dt.datetime | None = None) -> str:
+    data = {
+        "client_id": "fake.apps.googleusercontent.com",
+        "client_secret": "fake-secret",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "scopes": ["https://www.googleapis.com/auth/gmail.send"],
+    }
+    if refresh_token:
+        data["refresh_token"] = refresh_token
+    if expiry:
+        data["expiry"] = expiry.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return json.dumps(data)
 
 
 def test_check_database_ok_for_valid_sqlite_url():
@@ -61,30 +91,58 @@ def test_check_gmail_not_configured_without_credentials_file():
 
 def test_check_gmail_warning_when_credentials_present_but_no_token(tmp_path):
     creds = tmp_path / "creds.json"
-    creds.write_text("{}")
+    creds.write_text(_valid_client_json())
     result = diagnostics.check_gmail(
         _settings(gmail_credentials_json=str(creds), gmail_token_json=str(tmp_path / "missing_token.json"))
     )
     assert result.status == "warning"
+    assert "authentication required" in result.detail
 
 
-def test_check_gmail_ok_with_valid_refresh_token(tmp_path):
+def test_check_gmail_error_when_credentials_file_is_not_an_oauth_client(tmp_path):
+    """Regression: an empty/malformed JSON (or e.g. a service-account key,
+    or a bare API key) must be reported as invalid, not silently accepted."""
     creds = tmp_path / "creds.json"
     creds.write_text("{}")
+    result = diagnostics.check_gmail(
+        _settings(gmail_credentials_json=str(creds), gmail_token_json=str(tmp_path / "missing_token.json"))
+    )
+    assert result.status == "error"
+    assert "not a valid OAuth client" in result.detail
+
+
+def test_check_gmail_ok_with_valid_unexpired_refresh_token(tmp_path):
+    creds = tmp_path / "creds.json"
+    creds.write_text(_valid_client_json())
     token = tmp_path / "token.json"
-    token.write_text(json.dumps({"refresh_token": "r-123"}))
+    token.write_text(_token_json(refresh_token="r-123", expiry=dt.datetime.utcnow() + dt.timedelta(hours=1)))
     result = diagnostics.check_gmail(_settings(gmail_credentials_json=str(creds), gmail_token_json=str(token)))
     assert result.status == "ok"
     assert "r-123" not in result.detail  # never print the token value
 
 
-def test_check_gmail_warning_when_token_missing_refresh(tmp_path):
+def test_check_gmail_warning_when_token_expired_but_refreshable(tmp_path):
     creds = tmp_path / "creds.json"
-    creds.write_text("{}")
+    creds.write_text(_valid_client_json())
     token = tmp_path / "token.json"
-    token.write_text(json.dumps({"access_token": "a-123"}))
+    token.write_text(_token_json(refresh_token="r-123", expiry=dt.datetime.utcnow() - dt.timedelta(hours=1)))
     result = diagnostics.check_gmail(_settings(gmail_credentials_json=str(creds), gmail_token_json=str(token)))
     assert result.status == "warning"
+    assert "expired" in result.detail and "refresh_token present" in result.detail
+
+
+def test_check_gmail_error_when_token_missing_refresh(tmp_path):
+    """google-auth itself requires refresh_token to be present in the
+    token file and raises before we'd ever see a Credentials object
+    without one -- so this surfaces as an invalid/incomplete token, not a
+    distinguishable 'missing refresh_token' state."""
+    creds = tmp_path / "creds.json"
+    creds.write_text(_valid_client_json())
+    token = tmp_path / "token.json"
+    token.write_text(_token_json(refresh_token=None))
+    result = diagnostics.check_gmail(_settings(gmail_credentials_json=str(creds), gmail_token_json=str(token)))
+    assert result.status == "error"
+    assert "invalid or incomplete" in result.detail
 
 
 def test_check_send_mode_dry_run_without_gmail():

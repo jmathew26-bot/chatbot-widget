@@ -13,7 +13,13 @@ uvicorn>=0.30
 jinja2>=3.1
 python-multipart>=0.0.9
 
+# Real Gmail/Calendar integration (GmailEmailProvider, GoogleCalendarProvider,
+# `network doctor`'s OAuth checks, `network gmail-test`/`calendar-test`).
+# Without these installed, both providers fall back to their offline
+# defaults (ConsoleEmailProvider / NullCalendarProvider) via ImportError.
+google-api-python-client>=2.100
+google-auth-oauthlib>=1.2
+google-auth-httplib2>=0.2
+
 # Optional providers (install as needed):
 # anthropic>=0.34            # LLMProvider: Anthropic Claude
-# google-api-python-client   # CalendarProvider / GmailEmailProvider
-# google-auth-oauthlib       # Gmail/Calendar OAuth

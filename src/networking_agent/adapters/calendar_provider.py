@@ -25,10 +25,24 @@ class NullCalendarProvider(CalendarProvider):
         logger.info("NullCalendarProvider: would create event %r at %s (no calendar configured)", title, start)
         return f"local-{start.isoformat()}"
 
+    def delete_event(self, event_id: str) -> None:
+        logger.info("NullCalendarProvider: would delete event %r (no calendar configured)", event_id)
+
+
+# Minimal scopes for what this app actually does: read free/busy time and
+# create/delete events on one calendar. Deliberately narrower than the
+# blanket "https://www.googleapis.com/auth/calendar" scope, which also
+# grants calendar-list/ACL/settings management this app never needs.
+CALENDAR_SCOPES = [
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/calendar.freebusy",
+]
+
 
 class GoogleCalendarProvider(CalendarProvider):
     """Real Google Calendar integration. Requires OAuth credentials with the
-    calendar scope. Not used unless credential files exist on disk."""
+    calendar.events + calendar.freebusy scopes. Not used unless credential
+    files exist on disk."""
 
     def __init__(self, credentials_path: str, token_path: str, calendar_id: str):
         from google.auth.transport.requests import Request
@@ -36,7 +50,7 @@ class GoogleCalendarProvider(CalendarProvider):
         from google_auth_oauthlib.flow import InstalledAppFlow
         from googleapiclient.discovery import build
 
-        scopes = ["https://www.googleapis.com/auth/calendar"]
+        scopes = CALENDAR_SCOPES
         creds = None
         token_file = Path(token_path)
         if token_file.exists():
@@ -78,6 +92,14 @@ class GoogleCalendarProvider(CalendarProvider):
             event["attendees"] = [{"email": attendee_email}]
         created = self._service.events().insert(calendarId=self.calendar_id, body=event).execute()
         return created["id"]
+
+    def delete_event(self, event_id: str) -> None:
+        self._service.events().delete(calendarId=self.calendar_id, eventId=event_id).execute()
+
+    def get_calendar_info(self) -> dict:
+        """Used by `network calendar-test` to confirm real access without
+        creating anything -- returns the calendar's id/summary/timeZone."""
+        return self._service.calendars().get(calendarId=self.calendar_id).execute()
 
 
 def get_calendar_provider(settings: Settings) -> CalendarProvider:

@@ -11,6 +11,13 @@ logger = logging.getLogger("networking_agent.email")
 
 OUTBOX_DIR = REPO_ROOT / "data" / "outbox"
 
+# Minimal scopes for what this app does: send from the user's own mailbox
+# and read thread contents for reply detection. There is no narrower Gmail
+# scope for reading specific threads -- gmail.readonly is Google's
+# coarsest-but-still-read-only grade, required for threads().get /
+# messages().get / users().getProfile.
+GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.readonly"]
+
 
 def _extract_plain_text(payload: dict) -> str:
     """Walk a Gmail message payload for the first text/plain part; falls
@@ -93,7 +100,7 @@ class GmailEmailProvider(EmailProvider):
         from google_auth_oauthlib.flow import InstalledAppFlow
         from googleapiclient.discovery import build
 
-        scopes = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.readonly"]
+        scopes = GMAIL_SCOPES
         creds = None
         token_file = Path(token_path)
         if token_file.exists():
@@ -139,6 +146,13 @@ class GmailEmailProvider(EmailProvider):
             msg = self._service.users().messages().get(userId="me", id=msg_meta["id"]).execute()
             out.append(msg)
         return out
+
+    def whoami(self) -> str:
+        """Used by `network gmail-test` to confirm real access without
+        sending anything -- returns the authenticated account's email
+        address via Gmail's own profile endpoint."""
+        profile = self._service.users().getProfile(userId="me").execute()
+        return profile.get("emailAddress", "")
 
     def list_thread_messages(self, thread_id: str) -> list[IncomingMessage]:
         try:
